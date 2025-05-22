@@ -270,12 +270,6 @@ def main():
                 if "messages" in st.session_state:
                     st.session_state.messages = []
                 st.rerun()
-            
-            # # Show module information
-            # st.subheader("Available Modules")
-            # for module_id, module_info in MODULES.items():
-            #     with st.expander(module_info["name"]):
-            #         st.write(module_info["description"])
         
         st.subheader("University Information Assistant")
         st.write("Ask me anything about courses, schedules, exams, faculty, library resources, admission, or tuition!")
@@ -289,8 +283,6 @@ def main():
         
         # Recording status indicator
         recording_status = st.empty()
-        if st.session_state.recording:
-            recording_status.markdown("🔴 **Recording in progress...**")
     
     # Bottom container for chat history and input controls
     with bottom_container:
@@ -333,7 +325,16 @@ def main():
         except Exception as e:
             st.error(f"Error starting recording: {str(e)}")
             st.session_state.recording = False
-    
+
+    # Continuously collect audio frames while recording
+    if st.session_state.recording:
+        st.session_state.transcriber.collect_audio_frames()
+        # Show current duration
+        duration = st.session_state.transcriber.get_audio_duration()
+        recording_status.markdown(f"🔴 **Recording: {duration:.1f}s**")
+        time.sleep(0.1)  # Small delay
+        st.rerun()  # Keep updating
+
     # Handle stop recording
     if stop_button and st.session_state.recording:
         try:

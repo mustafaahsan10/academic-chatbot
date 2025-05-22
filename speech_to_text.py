@@ -18,7 +18,7 @@ class SpeechTranscriber:
         """Initialize the speech transcriber with the specified model."""
         # Initialize OpenAI client
         self.openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-        self.model = model_size  # Default to GPT-4o transcribe model
+        self.model = model_size
         self.is_recording = False
         self.audio_data = pydub.AudioSegment.empty()
         self.webrtc_ctx = None
@@ -33,14 +33,14 @@ class SpeechTranscriber:
             return False
             
         try:
-            # Create WebRTC streamer if not exists
-            if not self.webrtc_ctx:
-                self.webrtc_ctx = webrtc_streamer(
-                    key="speech-transcriber",
-                    mode=WebRtcMode.SENDONLY,
-                    audio_receiver_size=1024,
-                    media_stream_constraints={"audio": True},
-                )
+            # Create WebRTC streamer
+            self.webrtc_ctx = webrtc_streamer(
+                key="speech-transcriber",
+                mode=WebRtcMode.SENDONLY,
+                audio_receiver_size=1024,
+                media_stream_constraints={"audio": True},
+                async_processing=True,
+            )
             
             self.audio_data = pydub.AudioSegment.empty()
             self.is_recording = True
@@ -52,9 +52,12 @@ class SpeechTranscriber:
             print(f"Error starting recording: {e}")
             return False
     
-    def _collect_audio_frames(self):
-        """Collect audio frames from WebRTC"""
-        if not self.webrtc_ctx or not self.webrtc_ctx.audio_receiver:
+    def collect_audio_frames(self):
+        """
+        Collect audio frames from WebRTC while recording.
+        Call this repeatedly while recording to accumulate audio.
+        """
+        if not self.webrtc_ctx or not self.webrtc_ctx.audio_receiver or not self.is_recording:
             return False
             
         try:
@@ -96,8 +99,22 @@ class SpeechTranscriber:
             self.is_recording = False
             
             # Collect any remaining frames
-            if self.webrtc_ctx and self.webrtc_ctx.audio_receiver:
-                self._collect_audio_frames()
+            for _ in range(10):  # Try multiple times to get remaining frames
+                if self.webrtc_ctx and self.webrtc_ctx.audio_receiver:
+                    try:
+                        audio_frames = self.webrtc_ctx.audio_receiver.get_frames(timeout=0.1)
+                        for audio_frame in audio_frames:
+                            sound = pydub.AudioSegment(
+                                data=audio_frame.to_ndarray().tobytes(),
+                                sample_width=audio_frame.format.bytes,
+                                frame_rate=audio_frame.sample_rate,
+                                channels=len(audio_frame.layout.channels),
+                            )
+                            self.audio_data += sound
+                    except queue.Empty:
+                        break
+                    except Exception:
+                        break
             
             print("Recording stopped.")
             
@@ -106,10 +123,17 @@ class SpeechTranscriber:
                 print("No audio data captured")
                 return None
                 
+            # Check minimum duration (at least 0.5 seconds)
+            duration_ms = len(self.audio_data)
+            if duration_ms < 500:
+                print(f"Audio too short: {duration_ms}ms")
+                return None
+                
             # Convert to mono and save the recorded audio
             audio_mono = self.audio_data.set_channels(1)
             audio_mono.export(temp_file, format="wav")
             
+            print(f"Audio saved: {duration_ms}ms duration")
             return temp_file
             
         except Exception as e:
@@ -156,10 +180,9 @@ class SpeechTranscriber:
             print(f"Error transcribing audio: {e}")
             return ""
     
-    
-
-        
-   
+    def get_audio_duration(self):
+        """Get the current duration of recorded audio in seconds"""
+        return len(self.audio_data) / 1000.0 if self.audio_data else 0.0
 
 # For testing
 if __name__ == "__main__":
@@ -171,7 +194,7 @@ if __name__ == "__main__":
     input()
     audio_file = transcriber.stop_recording()
     if audio_file:
-        text = transcriber.transcribe_audio(audio_file)
+        text = transcriber.transcriber.transcribe_audio(audio_file)
         print(f"Transcription: {text}")
         
     else:
