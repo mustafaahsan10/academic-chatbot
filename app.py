@@ -283,6 +283,10 @@ def main():
         
         # Recording status indicator
         recording_status = st.empty()
+        
+        # Create WebRTC streamer in the main area
+        st.subheader("🎤 Voice Input")
+        webrtc_ctx = st.session_state.transcriber.create_webrtc_streamer()
     
     # Bottom container for chat history and input controls
     with bottom_container:
@@ -316,12 +320,15 @@ def main():
     # Handle start recording
     if start_button:
         try:
-            st.session_state.recording = True
-            success = st.session_state.transcriber.start_recording()
-            if not success:
-                st.error("Failed to start recording. Please try again.")
-                st.session_state.recording = False
-            st.rerun()
+            if webrtc_ctx.state.playing:
+                st.session_state.recording = True
+                success = st.session_state.transcriber.start_recording(webrtc_ctx)
+                if not success:
+                    st.error("Failed to start recording. Please try again.")
+                    st.session_state.recording = False
+                st.rerun()
+            else:
+                st.warning("Please start the WebRTC stream first by clicking the 'START' button above.")
         except Exception as e:
             st.error(f"Error starting recording: {str(e)}")
             st.session_state.recording = False

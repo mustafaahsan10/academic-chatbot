@@ -23,7 +23,18 @@ class SpeechTranscriber:
         self.audio_data = pydub.AudioSegment.empty()
         self.webrtc_ctx = None
         
-    def start_recording(self):
+    def create_webrtc_streamer(self, key="speech-transcriber"):
+        """Create and return WebRTC streamer context"""
+        self.webrtc_ctx = webrtc_streamer(
+            key=key,
+            mode=WebRtcMode.SENDONLY,
+            audio_receiver_size=1024,
+            media_stream_constraints={"audio": True},
+            async_processing=True,
+        )
+        return self.webrtc_ctx
+        
+    def start_recording(self, webrtc_ctx=None):
         """
         Start recording audio from the microphone.
         Returns True if recording started successfully, False otherwise.
@@ -33,14 +44,13 @@ class SpeechTranscriber:
             return False
             
         try:
-            # Create WebRTC streamer
-            self.webrtc_ctx = webrtc_streamer(
-                key="speech-transcriber",
-                mode=WebRtcMode.SENDONLY,
-                audio_receiver_size=1024,
-                media_stream_constraints={"audio": True},
-                async_processing=True,
-            )
+            # Use provided webrtc_ctx or existing one
+            if webrtc_ctx:
+                self.webrtc_ctx = webrtc_ctx
+                
+            if not self.webrtc_ctx:
+                st.error("WebRTC context not available")
+                return False
             
             self.audio_data = pydub.AudioSegment.empty()
             self.is_recording = True
