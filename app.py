@@ -317,9 +317,6 @@ def main():
             with col_input:
                 prompt = st.chat_input("Ask me a question...")
             
-            # Voice button
-            with col_button:
-                voice_button = st.button("🎤 Voice", key="voice_btn", use_container_width=True)
         
         # Process audio if available
         if audio_data:
