@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import logging
 import tempfile
 import time
+import io
 
 # Import the base query classifier
 from base.query_classifier import classify_query_sync
@@ -225,17 +226,28 @@ def main():
         padding: 0;
         margin: 0;
     }
+    
+    /* Hide the audio input widget */
+    .stAudioInput {
+        display: none;
+    }
     </style>
     """, unsafe_allow_html=True)
     
     st.title("🎓 University Assistant")
     
-    # Initialize session state for recording status if it doesn't exist
+    # Initialize session state
     if "recording" not in st.session_state:
         st.session_state.recording = False
         
     if "transcriber" not in st.session_state:
         st.session_state.transcriber = get_speech_transcriber()
+        
+    if "audio_processed" not in st.session_state:
+        st.session_state.audio_processed = False
+        
+    if "current_audio_key" not in st.session_state:
+        st.session_state.current_audio_key = 0
     
     # Main content area (upper section)
     main_area = st.container()
@@ -283,6 +295,14 @@ def main():
         
         # Recording status indicator
         recording_status = st.empty()
+        
+        # Hidden audio input widget (we'll trigger it programmatically)
+        audio_container = st.container()
+        with audio_container:
+            audio_data = st.audio_input(
+                "Record your question", 
+                key=f"audio_recorder_{st.session_state.current_audio_key}"
+            )
     
     # Bottom container for chat history and input controls
     with bottom_container:
@@ -294,44 +314,80 @@ def main():
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
         
-        # Use audio_input widget for recording
-        audio_data = st.audio_input("Record your question", key="audio_recorder")
-        
-        # Process audio if available
-        if audio_data:
-            with st.spinner("Transcribing audio..."):
-                try:
-                    # Save audio data to temporary file
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-                        audio_data.seek(0)
-                        tmp_file.write(audio_data.read())
-                        temp_file = tmp_file.name
-                    
-                    # Transcribe the audio
-                    transcribed_text = st.session_state.transcriber.transcribe_audio(temp_file)
-                    
-                    if transcribed_text:
-                        # Add to session state message history
-                        st.session_state.messages.append({"role": "user", "content": transcribed_text})
-                        
-                        # Generate response
-                        with st.spinner("Generating response..."):
-                            response = get_module_response(transcribed_text, language=language)
-                        
-                        # Update message history with response
-                        st.session_state.messages.append({"role": "assistant", "content": response})
-                        
-                        # Clear the audio input by rerunning
-                        st.rerun()
-                    else:
-                        st.warning("Could not transcribe audio. Please try again.")
-                        
-                except Exception as e:
-                    st.error(f"Error processing audio: {str(e)}")
-                    logger.error(f"Audio processing error: {e}", exc_info=True)
+        # Create a layout for input and buttons
+        col_input, col_buttons = st.columns([6, 1])
         
         # Text input
-        prompt = st.chat_input("Ask me a question...")
+        with col_input:
+            prompt = st.chat_input("Ask me a question...")
+            
+        # Buttons side by side
+        with col_buttons:
+            button_cols = st.columns(2)
+            
+            # Start button
+            with button_cols[0]:
+                start_button = st.button("🎤", key="start_rec", disabled=st.session_state.recording)
+            
+            # Stop button
+            with button_cols[1]:
+                stop_button = st.button("⏹️", key="stop_rec", disabled=not st.session_state.recording)
+    
+    # Handle start recording
+    if start_button:
+        st.session_state.recording = True
+        st.session_state.audio_processed = False
+        recording_status.markdown("🔴 **Recording... Click stop when done**")
+        st.rerun()
+    
+    # Handle stop recording
+    if stop_button:
+        st.session_state.recording = False
+        recording_status.markdown("⏸️ **Processing...**")
+        st.rerun()
+    
+    # Process audio if available and not yet processed
+    if audio_data and not st.session_state.recording and not st.session_state.audio_processed:
+        st.session_state.audio_processed = True
+        
+        with st.spinner("Transcribing audio..."):
+            try:
+                # Save audio data to temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+                    audio_data.seek(0)
+                    tmp_file.write(audio_data.read())
+                    temp_file = tmp_file.name
+                
+                # Transcribe the audio
+                transcribed_text = st.session_state.transcriber.transcribe_audio(temp_file)
+                
+                if transcribed_text:
+                    # Add to session state message history
+                    st.session_state.messages.append({"role": "user", "content": transcribed_text})
+                    
+                    # Generate response
+                    with st.spinner("Generating response..."):
+                        response = get_module_response(transcribed_text, language=language)
+                    
+                    # Update message history with response
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    
+                    # Increment audio key to reset the widget
+                    st.session_state.current_audio_key += 1
+                    
+                    # Clear recording status
+                    recording_status.empty()
+                    
+                    # Rerun to show new messages
+                    st.rerun()
+                else:
+                    st.warning("Could not transcribe audio. Please try again.")
+                    recording_status.empty()
+                    
+            except Exception as e:
+                st.error(f"Error processing audio: {str(e)}")
+                logger.error(f"Audio processing error: {e}", exc_info=True)
+                recording_status.empty()
     
     # Handle text input
     if prompt:
