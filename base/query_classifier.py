@@ -24,9 +24,16 @@ class QueryClassification(BaseModel):
     reasoning: str = Field(..., description="Explanation of why this module was selected")
     extracted_entities: Optional[dict] = Field(None, description="Key entities extracted from the query")
     keywords: List[str] = Field(default_factory=list, description="Important keywords from the query")
-
-# Initialize the classifier agent
-classifier_agent = pydantic_ai.Agent(
+classifier_agent = None
+def get_classifier_agent():
+    """Get or create the classifier agent with proper API key setup."""
+    global classifier_agent
+    
+    if classifier_agent is None:
+        # Set API key from Streamlit secrets
+        os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+        
+        classifier_agent = pydantic_ai.Agent(
     "openai:gpt-4.1-nano",  # Can be configured based on environment
     output_type=QueryClassification,
     system_prompt="""
@@ -85,6 +92,10 @@ classifier_agent = pydantic_ai.Agent(
     Always include your reasoning for why you selected a particular module.
 """
 )
+    
+    return classifier_agent
+# Initialize the classifier agent
+
 
 def classify_query_sync(query: str) -> QueryClassification:
     """
@@ -98,6 +109,7 @@ def classify_query_sync(query: str) -> QueryClassification:
     """
     try:
         # Run the classifier to get structured output with synchronous API
+        classifier_agent = get_classifier_agent()
         result = classifier_agent.run_sync(query)
         classification = result.output
         
