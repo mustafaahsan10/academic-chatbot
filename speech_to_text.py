@@ -1,12 +1,15 @@
 import os
-import wave
-import pyaudio
+import io
 import numpy as np
 import time
 import threading
 from openai import OpenAI
 from dotenv import load_dotenv
 import streamlit as st
+import pydub
+import queue
+from streamlit_webrtc import WebRtcMode, webrtc_streamer
+
 # Load environment variables
 load_dotenv()
 
@@ -17,9 +20,8 @@ class SpeechTranscriber:
         self.openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         self.model = model_size  # Default to GPT-4o transcribe model
         self.is_recording = False
-        self.audio_data = []
-        self.p = None
-        self.stream = None
+        self.audio_data = pydub.AudioSegment.empty()
+        self.webrtc_ctx = None
         
     def start_recording(self):
         """
@@ -31,40 +33,49 @@ class SpeechTranscriber:
             return False
             
         try:
-            self.p = pyaudio.PyAudio()
-            self.stream = self.p.open(
-                format=pyaudio.paInt16, 
-                channels=1, 
-                rate=16000, 
-                input=True, 
-                frames_per_buffer=1024
-            )
+            # Create WebRTC streamer if not exists
+            if not self.webrtc_ctx:
+                self.webrtc_ctx = webrtc_streamer(
+                    key="speech-transcriber",
+                    mode=WebRtcMode.SENDONLY,
+                    audio_receiver_size=1024,
+                    media_stream_constraints={"audio": True},
+                )
             
-            self.audio_data = []
+            self.audio_data = pydub.AudioSegment.empty()
             self.is_recording = True
-            
-            # Start the recording thread
-            self.recording_thread = threading.Thread(target=self._record_thread)
-            self.recording_thread.daemon = True
-            self.recording_thread.start()
             
             print("Recording started...")
             return True
             
         except Exception as e:
             print(f"Error starting recording: {e}")
-            self._cleanup_resources()
             return False
     
-    def _record_thread(self):
-        """Background thread to record audio"""
+    def _collect_audio_frames(self):
+        """Collect audio frames from WebRTC"""
+        if not self.webrtc_ctx or not self.webrtc_ctx.audio_receiver:
+            return False
+            
         try:
-            while self.is_recording and self.stream:
-                data = self.stream.read(1024, exception_on_overflow=False)
-                self.audio_data.append(data)
+            audio_frames = self.webrtc_ctx.audio_receiver.get_frames(timeout=0.1)
+            
+            for audio_frame in audio_frames:
+                sound = pydub.AudioSegment(
+                    data=audio_frame.to_ndarray().tobytes(),
+                    sample_width=audio_frame.format.bytes,
+                    frame_rate=audio_frame.sample_rate,
+                    channels=len(audio_frame.layout.channels),
+                )
+                self.audio_data += sound
+                
+            return len(audio_frames) > 0
+            
+        except queue.Empty:
+            return False
         except Exception as e:
-            print(f"Error in recording thread: {e}")
-            self.is_recording = False
+            print(f"Error collecting audio: {e}")
+            return False
         
     def stop_recording(self, temp_file="temp_audio.wav"):
         """
@@ -84,48 +95,26 @@ class SpeechTranscriber:
             # Stop recording
             self.is_recording = False
             
-            # Wait for recording thread to finish
-            if hasattr(self, 'recording_thread') and self.recording_thread.is_alive():
-                self.recording_thread.join(timeout=1.0)
-            
-            # Clean up PyAudio resources
-            self._cleanup_resources()
+            # Collect any remaining frames
+            if self.webrtc_ctx and self.webrtc_ctx.audio_receiver:
+                self._collect_audio_frames()
             
             print("Recording stopped.")
             
             # Check if we got any audio data
-            if not self.audio_data:
+            if len(self.audio_data) == 0:
                 print("No audio data captured")
                 return None
                 
-            # Save the recorded audio
-            wf = wave.open(temp_file, 'wb')
-            wf.setnchannels(1)
-            wf.setsampwidth(2)  # 16-bit audio = 2 bytes
-            wf.setframerate(16000)
-            wf.writeframes(b''.join(self.audio_data))
-            wf.close()
+            # Convert to mono and save the recorded audio
+            audio_mono = self.audio_data.set_channels(1)
+            audio_mono.export(temp_file, format="wav")
             
             return temp_file
             
         except Exception as e:
             print(f"Error stopping recording: {e}")
-            self._cleanup_resources()
             return None
-    
-    def _cleanup_resources(self):
-        """Clean up PyAudio resources"""
-        try:
-            if self.stream:
-                self.stream.stop_stream()
-                self.stream.close()
-                self.stream = None
-                
-            if self.p:
-                self.p.terminate()
-                self.p = None
-        except Exception as e:
-            print(f"Error cleaning up resources: {e}")
     
     def transcribe_audio(self, audio_file, prompt="", response_format="text"):
         """
