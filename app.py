@@ -209,30 +209,7 @@ def get_module_response(query: str, language: str = "English") -> str:
 def get_speech_transcriber():
     return SpeechTranscriber()
 
-# Main app
-def main():frames = []
-        self.sample_rate = 16000
-        self.channels = 1
-        self.sample_width = 2  # 16-bit audio
-        
-    def add_frame(self, frame):
-        self.frames.append(frame)
-        
-    def save_to_file(self):
-        if not self.frames:
-            return None
-            
-        # Create a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-            with wave.open(tmp_file.name, 'wb') as wf:
-                wf.setnchannels(self.channels)
-                wf.setsampwidth(self.sample_width)
-                wf.setframerate(self.sample_rate)
-                wf.writeframes(b''.join(self.frames))
-            return tmp_file.name
-            
-    def clear(self):
-        self.frames = []
+
 
 # Main app
 def main():
