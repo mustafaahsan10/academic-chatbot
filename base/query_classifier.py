@@ -3,14 +3,18 @@ from dotenv import load_dotenv
 from typing import List, Optional
 import pydantic_ai
 from pydantic import BaseModel, Field
-
+import os
+import streamlit as st
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-
+try:
+    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+except:
+    pass
 class QueryClassification(BaseModel):
     """Classification of a user query to determine which module should handle it"""
     user_query: str = Field(..., description="The original user query")
