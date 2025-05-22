@@ -354,9 +354,7 @@ def main():
                     st.error(f"Error processing audio: {str(e)}")
                     logger.error(f"Audio processing error: {e}", exc_info=True)
         
-        # Show instruction when voice button is clicked
-        if voice_button:
-            st.info("👆 Click on 'Record your message' above to start recording. Click 'Done' when finished.")
+      
     
     # Handle text input
     if prompt:
