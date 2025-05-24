@@ -89,16 +89,8 @@ def format_library_response(query: str, results: Dict[str, Any]) -> str:
         
         # Prepare the system prompt
         system_prompt = """
-        You are a helpful university library assistant. Your task is to format database query results into a natural,
-        conversational, and well-structured response.
-        
-        Format your response to be:
-        1. Conversational and friendly
-        2. Well-organized with proper Markdown formatting
-        3. Clear about book availability (mention explicitly if books are available or not)
-        4. Include relevant details about the books like author, price, etc. without overwhelming the user
-        
-        If no results were found, provide a friendly message and suggest alternatives.
+        You are a library assistant that formats database query results into a conversational response.
+        Use the provided query and SQL results to generate a friendly, informative response.
         """
         
         # Prepare the context with query results
