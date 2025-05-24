@@ -71,6 +71,87 @@ def detect_db_query_intent(query: str) -> Tuple[bool, float, str]:
         # Default to True (use DB) if there's an error
         return True, 0.6, f"Error during classification, defaulting to database query: {str(e)}"
 
+def format_library_response(query: str, results: Dict[str, Any]) -> str:
+    """
+    Use an LLM to format the library query results into a well-structured, readable response.
+    
+    Args:
+        query: The original user query
+        results: The database query results
+        
+    Returns:
+        A well-formatted, conversational response string
+    """
+    try:
+        # Extract data from results
+        data = results.get("results", [])
+        sql_query = results.get("sql", "")
+        
+        # Prepare the system prompt
+        system_prompt = """
+        You are a helpful university library assistant. Your task is to format database query results into a natural,
+        conversational, and well-structured response.
+        
+        Format your response to be:
+        1. Conversational and friendly
+        2. Well-organized with proper Markdown formatting
+        3. Clear about book availability (mention explicitly if books are available or not)
+        4. Include relevant details about the books like author, price, etc. without overwhelming the user
+        
+        If no results were found, provide a friendly message and suggest alternatives.
+        """
+        
+        # Prepare the context with query results
+        context = f"User query: {query}\n\nSQL query used: {sql_query}\n\nQuery results:\n"
+        
+        # Add result data
+        if "error" in results:
+            context += f"Error: {results['error']}"
+        elif not data:
+            context += "No books found matching the query."
+        else:
+            context += f"Found {len(data)} books:\n\n"
+            for i, item in enumerate(data):
+                context += f"Book {i+1}:\n"
+                for key, value in item.items():
+                    if value is not None:
+                        context += f"- {key}: {value}\n"
+                context += "\n"
+        
+        # Generate formatted response using OpenRouter
+        response = client.chat.completions.create(
+            model="gpt-4.1-nano",  # OpenRouter model
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": context}
+            ],
+            temperature=0.7,
+            max_tokens=800
+        )
+        
+        formatted_response = response.choices[0].message.content
+        return formatted_response
+    
+    except Exception as e:
+        print(f"Error formatting library response: {e}")
+        # Return a simple formatted response as fallback
+        if "error" in results:
+            return f"Sorry, I encountered an error while searching for books: {results['error']}"
+        
+        data = results.get("results", [])
+        if not data:
+            return "I couldn't find any books matching your query. Perhaps try different keywords or ask about another book?"
+        
+        response = f"Here are the books I found for '{query}':\n\n"
+        for i, item in enumerate(data):
+            response += f"**Book {i+1}**:\n"
+            for key, value in item.items():
+                if value is not None:
+                    response += f"- **{key}**: {value}\n"
+            response += "\n"
+        
+        return response
+
 def process_library_query(query: str) -> Dict[str, Any]:
     """
     Process a query related to the library, determining if it should use the database
@@ -91,26 +172,11 @@ def process_library_query(query: str) -> Dict[str, Any]:
         # Call the DB endpoint function
         results = db_endpoint(query)
         
-        # Format the results for display
-        if "error" in results:
-            response = f"Error processing library query: {results['error']}"
-        else:
-            response = f"Query: {results.get('query')}\n\n"
-            
-            data = results.get("results", [])
-            if not data:
-                response += "No books found matching your query."
-            else:
-                response += "Here are the matching books:\n\n"
-                for i, item in enumerate(data):
-                    response += f"**Book {i+1}:**\n"
-                    for key, value in item.items():
-                        if value is not None:  # Only show non-null values
-                            response += f"- {key}: {value}\n"
-                    response += "\n"
+        # Format the results using LLM
+        formatted_response = format_library_response(query, results)
         
         return {
-            "response": response,
+            "response": formatted_response,
             "is_db_query": True,
             "confidence": confidence,
             "reasoning": reasoning,
