@@ -174,6 +174,7 @@ def process_library_query(query: str) -> Dict[str, Any]:
         
         # Format the results using LLM
         formatted_response = format_library_response(query, results)
+        print(f"Formatted response: {formatted_response}")
         
         return {
             "response": formatted_response,
